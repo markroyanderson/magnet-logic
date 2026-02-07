@@ -1,17 +1,4 @@
 (() => {
-  // Magnet Logic (original)
-  // Goal: cover all target tiles with discs.
-  //
-  // Move:
-  // 1) Click/tap magnet to "pick up" (selected).
-  // 2) Click/tap an empty floor tile to place magnet.
-  // 3) On placement, magnet pushes discs away along 4 rays (up/down/left/right).
-  //    - In each direction, discs on that ray attempt to move 1 step further away.
-  //    - We process farthest-first so chains behave sensibly.
-  //
-  // Scoring: fastest completion time per level (best stored in localStorage where available).
-  // Sound: always-on retro beeps (WebAudio) — starts after first user interaction.
-
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
 
@@ -22,82 +9,82 @@
   const timeEl = document.getElementById("time");
   const bestEl = document.getElementById("best");
 
+  // Colors (match CSS)
+  const NAVY = "#0b1b3a";
+  const BG = "#bfe6ff";
+
   // Level symbols:
   // # wall
   // . empty
   // M magnet start
   // o disc
-  // * target
+  // * target (outline circle)
+  //
+  // IMPORTANT RULE:
+  // targets count MUST equal total pieces (magnet + discs).
+  // That guarantees magnet must cover a target too.
   const LEVELS = [
     { name: "1", map: [
       "###########",
       "#..*...*..#",
-      "#..o...o..#",
+      "#..o......#",
       "#.....M...#",
-      "#..o...o..#",
-      "#..*...*..#",
+      "#......o..#",
+      "#..*......#",
       "###########"
-    ]},
+    ]}, // 2 discs + 1 magnet = 3 targets (***)
+
     { name: "2", map: [
       "###########",
-      "#..*...*..#",
-      "#..o#o....#",
-      "#...#M....#",
-      "#....o#o..#",
-      "#..*...*..#",
+      "#..*..*...#",
+      "#..o#.....#",
+      "#...#M..o.#",
+      "#...#.....#",
+      "#..*......#",
       "###########"
-    ]},
+    ]}, // 2 discs + magnet = 3 targets
+
     { name: "3", map: [
       "#############",
       "#..*.....*..#",
       "#..o..#..o..#",
       "#.....#.....#",
-      "#..o..#..o..#",
-      "#.....M.....#",
-      "#..*.....*..#",
+      "#.....#..M..#",
+      "#..*.........#",
       "#############"
-    ]},
+    ]}, // 2 discs + magnet = 3 targets
+
     { name: "4", map: [
       "#############",
       "#..*..#..*..#",
       "#..o..#..o..#",
       "#.....#.....#",
-      "#..o..#..o..#",
-      "#.....#..M..#",
-      "#..*..#..*..#",
+      "#..M..#.....#",
+      "#.....#..*..#",
       "#############"
-    ]},
+    ]}, // 2 discs + magnet = 3 targets
+
     { name: "5", map: [
       "###############",
       "#..*.....*....#",
       "#..o..#..o..#.#",
       "#.....#.....#.#",
-      "#..o..#..o..#.#",
-      "#.....#..M..#.#",
-      "#..*.....*....#",
+      "#..o..#..M..#.#",
+      "#..*..........#",
       "###############"
-    ]},
+    ]}, // 3 discs + magnet = 4 targets (****)
+
     { name: "6", map: [
       "###############",
       "#..*..#..*....#",
       "#..o..#..o..#.#",
       "#.....#.....#.#",
-      "#..o..#..o..#.#",
-      "#..M..#.....#.#",
-      "#..*..#..*....#",
+      "#..M..#..o..#.#",
+      "#..*..........#",
       "###############"
-    ]},
+    ]}, // 3 discs + magnet = 4 targets
+
     { name: "7", map: [
-      "###############",
-      "#..*.....*....#",
-      "#.###.###.###.#",
-      "#..o..M..o....#",
-      "#.###.###.###.#",
-      "#..o.....o..*.#",
-      "#.....*.......#",
-      "###############"
-    ]},
-    { name: "8", map: [
       "#################",
       "#..*.....*......#",
       "#.#####.#####.###",
@@ -105,10 +92,11 @@
       "#..#..#..#..#...#",
       "#..#..M..#..o..*#",
       "#..#.....#......#",
-      "#..o.....o......#",
+      "#..*............#",
       "#################"
-    ]},
-    { name: "9", map: [
+    ]}, // 3 discs + magnet = 4 targets
+
+    { name: "8", map: [
       "#################",
       "#..*..#.....#..*#",
       "#..o..#..o..#..o#",
@@ -118,20 +106,7 @@
       "#o..#..o..#..o#.#",
       "#*..#.....#..*..#",
       "#################"
-    ]},
-    { name: "10", map: [
-      "###################",
-      "#..*....#....*....#",
-      "#..o....#....o....#",
-      "#..###..#.#####..##",
-      "#......o#o.......#",
-      "##.#####.#####.###",
-      "#......o#o......M#",
-      "##..#####.#..###..#",
-      "#....o....#....o..#",
-      "#....*....#....*..#",
-      "###################"
-    ]}
+    ]} // 6 discs + magnet = 7 targets (*******)
   ];
 
   // Populate level select
@@ -188,14 +163,14 @@
   }
 
   const sfx = {
-    pick() { beep({ freq: 620, dur: 0.05, type: "square", gain: 0.05 }); },
+    pick()  { beep({ freq: 620, dur: 0.05, type: "square", gain: 0.05 }); },
     place() { beep({ freq: 420, dur: 0.06, type: "square", gain: 0.06 }); },
-    push() { beep({ freq: 240, dur: 0.07, type: "square", gain: 0.06 }); },
+    push()  { beep({ freq: 240, dur: 0.07, type: "square", gain: 0.06 }); },
     win() {
       beep({ freq: 660, dur: 0.09, type: "square", gain: 0.06 });
       setTimeout(() => beep({ freq: 990, dur: 0.10, type: "triangle", gain: 0.06 }), 90);
     },
-    blocked() { beep({ freq: 140, dur: 0.06, type: "square", gain: 0.05 }); }
+    blocked(){ beep({ freq: 140, dur: 0.06, type: "square", gain: 0.05 }); }
   };
 
   // --- localStorage safe ---
@@ -224,12 +199,10 @@
   function setTimer(seconds) {
     timeEl.textContent = seconds.toFixed(2);
   }
-
   function stopTimerLoop() {
     if (rafTimer) cancelAnimationFrame(rafTimer);
     rafTimer = 0;
   }
-
   function resetTimer() {
     started = false;
     startTimeMs = 0;
@@ -238,13 +211,11 @@
     stopTimerLoop();
     rafTimer = requestAnimationFrame(tickTimer);
   }
-
   function startTimerIfNeeded() {
     if (started) return;
     started = true;
     startTimeMs = performance.now();
   }
-
   function tickTimer() {
     if (started && state && !state.won) {
       elapsedMs = performance.now() - startTimeMs;
@@ -259,7 +230,6 @@
     const n = Number(v);
     bestEl.textContent = Number.isFinite(n) ? `${n.toFixed(2)}s` : "—";
   }
-
   function saveBestIfBetter(seconds) {
     const k = bestKey(currentLevelIndex);
     const prev = Number(safeGetItem(k));
@@ -307,7 +277,10 @@
       }
     }
 
+    // Validate rule: targets = discs + magnet (1)
+    // If not, still run, but the design rule is meant to hold.
     state = { w, h, walls, targets, magnet, discs, won: false, moves: 0 };
+
     fitBoardToCanvas();
     resetTimer();
     loadBest();
@@ -340,21 +313,27 @@
     return true;
   }
 
-  function targetsCoveredCount() {
+  // Targets are "covered" if a disc OR the magnet occupies them.
+  function isTargetCoveredKey(tk) {
+    if (state.discs.has(tk)) return true;
+    const [tx, ty] = parseKey(tk);
+    return state.magnet.x === tx && state.magnet.y === ty;
+  }
+
+  function coveredCount() {
     let n = 0;
-    for (const t of state.targets) if (state.discs.has(t)) n++;
+    for (const tk of state.targets) if (isTargetCoveredKey(tk)) n++;
     return n;
   }
 
   function checkWin() {
     if (state.targets.size === 0) return false;
-    return targetsCoveredCount() === state.targets.size;
+    return coveredCount() === state.targets.size;
   }
 
   // Push discs away in 4 directions from magnet (one step, farthest-first per ray).
   function pushDiscsFrom(mx, my) {
     let movedAny = false;
-
     const dirs = [
       { dx: 0, dy: -1 }, // up
       { dx: 0, dy: 1 },  // down
@@ -386,7 +365,6 @@
         }
       }
     }
-
     return movedAny;
   }
 
@@ -415,7 +393,7 @@
     }
   }
 
-  // --- Input: click/tap on board ---
+  // --- Input ---
   function fitBoardToCanvas() {
     const pad = 42;
     const usableW = canvas.width - pad * 2;
@@ -438,7 +416,6 @@
     const y = Math.floor((sy - originY) / tile);
     if (!inBounds(x, y)) return null;
 
-    // Also ensure it's actually inside the grid area, not padding
     const gx = originX + x * tile;
     const gy = originY + y * tile;
     if (sx < gx || sx > gx + tile || sy < gy || sy > gy + tile) return null;
@@ -468,19 +445,15 @@
       render();
       return;
     }
-
-    // If not selected: tapping elsewhere does nothing (keeps minimal & deliberate)
   });
 
-  // Keyboard shortcuts (minimal)
   window.addEventListener("keydown", (e) => {
     const k = e.key;
     if (k === "Escape") { selected = false; render(); }
     if (k === "r" || k === "R") { ensureAudio(); resetLevel(); }
-    if (k === "z" || k === "Z") { ensureAudio(); undo(); }
+    if (k === "z" || k === "Z") { ensureAudio(); undo(); render(); }
   });
 
-  // Buttons / UI
   btnUndo.addEventListener("click", () => { ensureAudio(); undo(); render(); });
   btnReset.addEventListener("click", () => { ensureAudio(); resetLevel(); });
   levelSelect.addEventListener("change", () => loadLevel(parseInt(levelSelect.value, 10)));
@@ -504,97 +477,98 @@
   function render() {
     if (!state) return;
 
+    // background solid
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const covered = targetsCoveredCount();
+    const covered = coveredCount();
     const total = state.targets.size;
     metaEl.textContent = `Targets: ${covered}/${total} • Moves: ${state.moves}${selected ? " • Magnet: PICKED" : ""}`;
 
-    // Draw grid
+    // draw tiles (subtle grid)
     for (let y = 0; y < state.h; y++) {
       for (let x = 0; x < state.w; x++) {
         const k = keyOf(x, y);
         const { x: px, y: py } = cellToPx(x, y);
 
-        // floor base
-        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        // floor
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
         roundRect(px + 2, py + 2, tile - 4, tile - 4, 10);
         ctx.fill();
 
-        // wall
+        // walls
         if (state.walls.has(k)) {
-          ctx.fillStyle = "rgba(255,255,255,0.14)";
+          ctx.fillStyle = NAVY;
           roundRect(px + 2, py + 2, tile - 4, tile - 4, 10);
           ctx.fill();
           continue;
         }
 
-        // target ring
+        // target circles (navy outlines)
         if (state.targets.has(k)) {
-          const isCovered = state.discs.has(k);
-          ctx.strokeStyle = isCovered ? "rgba(190,230,255,0.9)" : "rgba(190,230,255,0.45)";
-          ctx.lineWidth = Math.max(2, Math.floor(tile * 0.06));
+          const isCovered = isTargetCoveredKey(k);
+          ctx.strokeStyle = NAVY;
+          ctx.lineWidth = Math.max(2, Math.floor(tile * 0.08));
           ctx.beginPath();
           ctx.arc(px + tile / 2, py + tile / 2, tile * 0.26, 0, Math.PI * 2);
           ctx.stroke();
+
+          // subtle indicator when covered (still keeping outline style)
+          if (isCovered) {
+            ctx.fillStyle = NAVY;
+            ctx.beginPath();
+            ctx.arc(px + tile / 2, py + tile / 2, tile * 0.10, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
       }
     }
 
-    // discs
+    // discs (solid navy circles)
     for (const dk of state.discs) {
       const [x, y] = parseKey(dk);
       const { x: px, y: py } = cellToPx(x, y);
 
-      ctx.fillStyle = "rgba(20,22,28,0.85)";
+      ctx.fillStyle = NAVY;
       ctx.beginPath();
       ctx.arc(px + tile / 2, py + tile / 2, tile * 0.28, 0, Math.PI * 2);
       ctx.fill();
-
-      ctx.fillStyle = "rgba(255,255,255,0.10)";
-      ctx.beginPath();
-      ctx.arc(px + tile / 2 - tile * 0.08, py + tile / 2 - tile * 0.08, tile * 0.12, 0, Math.PI * 2);
-      ctx.fill();
     }
 
-    // magnet
+    // magnet (solid navy rounded square)
     {
       const { x, y } = state.magnet;
       const { x: px, y: py } = cellToPx(x, y);
 
-      ctx.fillStyle = selected ? "rgba(200,160,255,0.95)" : "rgba(160,110,255,0.90)";
+      ctx.fillStyle = NAVY;
       roundRect(px + 6, py + 6, tile - 12, tile - 12, 12);
       ctx.fill();
 
-      ctx.fillStyle = "rgba(0,0,0,0.20)";
-      roundRect(px + 10, py + 10, tile - 20, tile - 20, 10);
-      ctx.fill();
-
-      // simple magnet mark
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.font = `800 ${Math.floor(tile * 0.46)}px system-ui`;
+      // small notch mark (still navy, but “reads” as magnet)
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.font = `900 ${Math.floor(tile * 0.46)}px system-ui`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("∩", px + tile / 2, py + tile / 2 + 1);
       ctx.textBaseline = "alphabetic";
     }
 
-    // win overlay (minimal)
+    // win overlay (minimal, high contrast)
     if (state.won) {
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillStyle = "rgba(11,27,58,0.75)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
       ctx.font = "900 56px system-ui, -apple-system, Segoe UI, Roboto, Arial";
       ctx.textAlign = "center";
       ctx.fillText("Solved", canvas.width / 2, canvas.height / 2 - 10);
 
-      ctx.font = "600 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-      ctx.fillText("Choose the next level (top right).", canvas.width / 2, canvas.height / 2 + 30);
+      ctx.font = "700 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText("Choose another level (top right).", canvas.width / 2, canvas.height / 2 + 30);
     }
   }
 
-  // Resize
   window.addEventListener("resize", () => {
     if (!state) return;
     fitBoardToCanvas();
